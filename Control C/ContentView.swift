@@ -11,43 +11,36 @@ import ServiceManagement
 
 struct ContentView: View {
     let monitor: ClipboardMonitor
-    @Environment(\.openSettings) private var openSettings
-    @State private var isScrolled = false
+    @State private var screen: Screen = .main
+
+    private enum Screen: Hashable { case main, settings }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            content
-            Divider()
-            settings
-            footer
+        ZStack {
+            switch screen {
+            case .main:
+                MainScreen(monitor: monitor) {
+                    withAnimation(.smooth(duration: 0.25)) { screen = .settings }
+                }
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            case .settings:
+                SettingsScreen {
+                    withAnimation(.smooth(duration: 0.25)) { screen = .main }
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .frame(width: 320)
     }
+}
 
-    private var header: some View {
-        HStack {
-            Text("Clipboard History")
-                .font(.system(size: 13, weight: .medium))
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background {
-            if isScrolled {
-                Rectangle().fill(.thinMaterial)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isScrolled {
-                Divider()
-            }
-        }
-    }
+private struct MainScreen: View {
+    let monitor: ClipboardMonitor
+    let onOpenSettings: () -> Void
 
-    @ViewBuilder
-    private var content: some View {
+    var body: some View {
         if monitor.history.isEmpty {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 header
                 VStack(spacing: 6) {
                     Image(systemName: "doc.on.clipboard")
@@ -58,6 +51,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 140)
+                bottomBar
             }
         } else {
             ScrollView {
@@ -71,29 +65,65 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .padding(.top, 6)
+                .padding(.vertical, 12)
             }
             .scrollIndicators(.never)
-            .frame(maxHeight: 420)
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .scrollEdgeEffectStyle(.soft, for: .all)
+            .frame(maxHeight: 540)
+            .safeAreaBar(edge: .top, spacing: 0) {
                 header
             }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y > 4
-            } action: { _, scrolled in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isScrolled = scrolled
-                }
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                bottomBar
             }
         }
     }
 
-    private var settings: some View {
-        Button {
-            NSApp.activate(ignoringOtherApps: true)
-            openSettings()
-        } label: {
+    private var header: some View {
+        HStack {
+            Text("Clipboard History")
+                .font(.system(size: 13, weight: .medium))
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: Rectangle())
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0.0),
+                    .init(color: .black, location: 0.7),
+                    .init(color: .clear, location: 1.0),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsRow
+            quitRow
+        }
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: Rectangle())
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .black, location: 0.25),
+                    .init(color: .black, location: 1.0),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+
+    private var settingsRow: some View {
+        Button(action: onOpenSettings) {
             HStack {
                 Text("Settings")
                 Spacer()
@@ -108,7 +138,7 @@ struct ContentView: View {
         .padding(.vertical, 8)
     }
 
-    private var footer: some View {
+    private var quitRow: some View {
         Button {
             NSApp.terminate(nil)
         } label: {
@@ -122,6 +152,47 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+private struct SettingsScreen: View {
+    let onBack: () -> Void
+
+    @State private var openOnLaunch = LaunchAtLogin.isEnabled
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onBack) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.semibold))
+                    Text("Settings")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            Toggle(isOn: $openOnLaunch) {
+                Text("Open on launch")
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .onChange(of: openOnLaunch) { _, newValue in
+                LaunchAtLogin.set(enabled: newValue)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 180)
+        .onAppear { openOnLaunch = LaunchAtLogin.isEnabled }
     }
 }
 
@@ -143,6 +214,7 @@ private struct ClipboardCard: View {
             thumbnail
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(height: thumbnailHeight)
+                .frame(maxHeight: 240)
                 .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -274,22 +346,6 @@ private struct FileThumbnailView: View {
                 continuation.resume(returning: rep?.nsImage)
             }
         }
-    }
-}
-
-struct SettingsView: View {
-    @State private var openOnLaunch: Bool = LaunchAtLogin.isEnabled
-
-    var body: some View {
-        Form {
-            Toggle("Open on launch", isOn: $openOnLaunch)
-                .onChange(of: openOnLaunch) { _, newValue in
-                    LaunchAtLogin.set(enabled: newValue)
-                }
-        }
-        .formStyle(.grouped)
-        .frame(width: 380, height: 160)
-        .onAppear { openOnLaunch = LaunchAtLogin.isEnabled }
     }
 }
 
