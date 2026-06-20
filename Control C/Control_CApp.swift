@@ -7,11 +7,22 @@
 
 import SwiftUI
 
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
 @main
 struct Control_CApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var monitor = ClipboardMonitor()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra("Control C", systemImage: "doc.on.clipboard") {
+            ContentView(monitor: monitor)
+                .onAppear { monitor.start() }
         }
+        .menuBarExtraStyle(.window)
     }
 }
