@@ -24,5 +24,9 @@ struct Control_CApp: App {
                 .onAppear { monitor.start() }
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+        }
     }
 }

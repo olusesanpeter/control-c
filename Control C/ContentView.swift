@@ -7,15 +7,18 @@
 
 import SwiftUI
 import QuickLookThumbnailing
+import ServiceManagement
 
 struct ContentView: View {
     let monitor: ClipboardMonitor
+    @Environment(\.openSettings) private var openSettings
+    @State private var isScrolled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
             content
             Divider()
+            settings
             footer
         }
         .frame(width: 320)
@@ -28,22 +31,34 @@ struct ContentView: View {
             Spacer()
         }
         .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 2)
+        .padding(.vertical, 10)
+        .background {
+            if isScrolled {
+                Rectangle().fill(.thinMaterial)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if isScrolled {
+                Divider()
+            }
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         if monitor.history.isEmpty {
-            VStack(spacing: 6) {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                Text("Copy something to get started")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                header
+                VStack(spacing: 6) {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("Copy something to get started")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 140)
             }
-            .frame(maxWidth: .infinity, minHeight: 140)
         } else {
             ScrollView {
                 LazyVStack(spacing: 12) {
@@ -61,7 +76,36 @@ struct ContentView: View {
             }
             .scrollIndicators(.never)
             .frame(maxHeight: 420)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                header
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y > 4
+            } action: { _, scrolled in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isScrolled = scrolled
+                }
+            }
         }
+    }
+
+    private var settings: some View {
+        Button {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        } label: {
+            HStack {
+                Text("Settings")
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+            }
+            .contentShape(Rectangle())
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private var footer: some View {
@@ -98,7 +142,7 @@ private struct ClipboardCard: View {
         VStack(alignment: .leading, spacing: 6) {
             thumbnail
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .frame(height: isText ? nil : 140)
+                .frame(height: thumbnailHeight)
                 .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -126,6 +170,13 @@ private struct ClipboardCard: View {
         return false
     }
 
+    private var thumbnailHeight: CGFloat? {
+        switch item.kind {
+        case .text, .image: return nil
+        case .files: return 140
+        }
+    }
+
     @ViewBuilder
     private var thumbnail: some View {
         switch item.kind {
@@ -140,9 +191,8 @@ private struct ClipboardCard: View {
             if let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
                     .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
             } else {
                 fallbackIcon("photo")
             }
@@ -223,6 +273,40 @@ private struct FileThumbnailView: View {
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, _ in
                 continuation.resume(returning: rep?.nsImage)
             }
+        }
+    }
+}
+
+struct SettingsView: View {
+    @State private var openOnLaunch: Bool = LaunchAtLogin.isEnabled
+
+    var body: some View {
+        Form {
+            Toggle("Open on launch", isOn: $openOnLaunch)
+                .onChange(of: openOnLaunch) { _, newValue in
+                    LaunchAtLogin.set(enabled: newValue)
+                }
+        }
+        .formStyle(.grouped)
+        .frame(width: 380, height: 160)
+        .onAppear { openOnLaunch = LaunchAtLogin.isEnabled }
+    }
+}
+
+private enum LaunchAtLogin {
+    static var isEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    static func set(enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            NSLog("Control C launch-at-login error: \(error)")
         }
     }
 }
