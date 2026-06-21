@@ -40,6 +40,8 @@ private struct MainScreen: View {
     let onOpenSettings: () -> Void
 
     @State private var hoveredItemID: ClipboardItem.ID?
+    @State private var hasContentAbove = false
+    @State private var hasContentBelow = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -82,6 +84,16 @@ private struct MainScreen: View {
                 .overlay(alignment: .bottom) {
                     bottomBar
                 }
+                .onScrollGeometryChange(for: BarVisibility.self) { geometry in
+                    let above = geometry.contentOffset.y > 2
+                    let below = (geometry.contentOffset.y + geometry.containerSize.height) < (geometry.contentSize.height - 2)
+                    return BarVisibility(above: above, below: below)
+                } action: { _, state in
+                    withAnimation(.smooth(duration: 0.22)) {
+                        hasContentAbove = state.above
+                        hasContentBelow = state.below
+                    }
+                }
             }
         }
         .focusable()
@@ -113,14 +125,7 @@ private struct MainScreen: View {
         .glassEffect(.regular, in: Rectangle())
         .mask {
             LinearGradient(
-                stops: [
-                    .init(color: .black, location: 0.0),
-                    .init(color: .black, location: 0.5),
-                    .init(color: .black.opacity(0.85), location: 0.65),
-                    .init(color: .black.opacity(0.55), location: 0.78),
-                    .init(color: .black.opacity(0.25), location: 0.9),
-                    .init(color: .clear, location: 1.0),
-                ],
+                stops: headerMaskStops,
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -137,17 +142,56 @@ private struct MainScreen: View {
         .glassEffect(.regular, in: Rectangle())
         .mask {
             LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: .black.opacity(0.25), location: 0.1),
-                    .init(color: .black.opacity(0.55), location: 0.22),
-                    .init(color: .black.opacity(0.85), location: 0.35),
-                    .init(color: .black, location: 0.5),
-                    .init(color: .black, location: 1.0),
-                ],
+                stops: bottomBarMaskStops,
                 startPoint: .top,
                 endPoint: .bottom
             )
+        }
+    }
+
+    private var headerMaskStops: [Gradient.Stop] {
+        if hasContentAbove {
+            return [
+                .init(color: .black, location: 0.0),
+                .init(color: .black, location: 0.5),
+                .init(color: .black.opacity(0.85), location: 0.65),
+                .init(color: .black.opacity(0.55), location: 0.78),
+                .init(color: .black.opacity(0.25), location: 0.9),
+                .init(color: .clear, location: 1.0),
+            ]
+        } else {
+            return [
+                .init(color: .black, location: 0.0),
+                .init(color: .black, location: 0.5),
+                .init(color: .black.opacity(0.85), location: 0.56),
+                .init(color: .black.opacity(0.5), location: 0.6),
+                .init(color: .black.opacity(0.15), location: 0.64),
+                .init(color: .clear, location: 0.68),
+                .init(color: .clear, location: 1.0),
+            ]
+        }
+    }
+
+    private var bottomBarMaskStops: [Gradient.Stop] {
+        if hasContentBelow {
+            return [
+                .init(color: .clear, location: 0.0),
+                .init(color: .black.opacity(0.25), location: 0.1),
+                .init(color: .black.opacity(0.55), location: 0.22),
+                .init(color: .black.opacity(0.85), location: 0.35),
+                .init(color: .black, location: 0.5),
+                .init(color: .black, location: 1.0),
+            ]
+        } else {
+            return [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.18),
+                .init(color: .black.opacity(0.15), location: 0.22),
+                .init(color: .black.opacity(0.5), location: 0.26),
+                .init(color: .black.opacity(0.85), location: 0.3),
+                .init(color: .black, location: 0.35),
+                .init(color: .black, location: 1.0),
+            ]
         }
     }
 
@@ -225,6 +269,11 @@ private struct SettingsScreen: View {
     }
 }
 
+private struct BarVisibility: Equatable {
+    let above: Bool
+    let below: Bool
+}
+
 private struct ClipboardCard: View {
     let item: ClipboardItem
     @Binding var hoveredID: ClipboardItem.ID?
@@ -232,6 +281,7 @@ private struct ClipboardCard: View {
     let onPreview: () -> Void
 
     @State private var isHovering = false
+    @State private var isExpanded = false
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -244,7 +294,7 @@ private struct ClipboardCard: View {
             thumbnail
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(height: thumbnailHeight)
-                .frame(maxHeight: 200)
+                .frame(maxHeight: thumbnailMaxHeight)
                 .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -258,7 +308,7 @@ private struct ClipboardCard: View {
                     }
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 8))
-                .onTapGesture { onCopy() }
+                .onDrag { dragItemProvider() }
 
             Text(Self.relativeFormatter.localizedString(for: item.timestamp, relativeTo: Date()))
                 .font(.caption)
@@ -272,6 +322,32 @@ private struct ClipboardCard: View {
                 hoveredID = nil
             }
         }
+    }
+
+    private func dragItemProvider() -> NSItemProvider {
+        switch item.kind {
+        case .text(let string):
+            return NSItemProvider(object: string as NSString)
+        case .image(let data):
+            if let nsImage = NSImage(data: data) {
+                return NSItemProvider(object: nsImage)
+            }
+            return NSItemProvider()
+        case .files(let urls):
+            if let url = urls.first {
+                return NSItemProvider(object: url as NSURL)
+            }
+            return NSItemProvider()
+        }
+    }
+
+    private var thumbnailMaxHeight: CGFloat {
+        if case .text = item.kind, isExpanded { return 380 }
+        return 200
+    }
+
+    private func isTextTruncatable(_ string: String) -> Bool {
+        string.components(separatedBy: "\n").count > 4 || string.count > 200
     }
 
     private var isText: Bool {
@@ -290,12 +366,26 @@ private struct ClipboardCard: View {
     private var thumbnail: some View {
         switch item.kind {
         case .text(let string):
-            Text(string)
-                .font(.system(.callout, design: .monospaced))
-                .lineLimit(8)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(string)
+                    .font(.system(.callout, design: .monospaced))
+                    .lineLimit(isExpanded ? nil : 4)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if isTextTruncatable(string) {
+                    Button {
+                        withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                            .frame(width: 20, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(10)
         case .image(let data):
             if let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
