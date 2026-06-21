@@ -7,6 +7,7 @@
 
 import SwiftUI
 import QuickLookThumbnailing
+import QuickLookUI
 import ServiceManagement
 
 struct ContentView: View {
@@ -38,62 +39,86 @@ private struct MainScreen: View {
     let monitor: ClipboardMonitor
     let onOpenSettings: () -> Void
 
+    @State private var hoveredItemID: ClipboardItem.ID?
+    @FocusState private var focused: Bool
+
     var body: some View {
-        if monitor.history.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                VStack(spacing: 6) {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                    Text("Copy something to get started")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 140)
-                bottomBar
-            }
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(monitor.history) { item in
-                        ClipboardCard(
-                            item: item,
-                            onCopy: { monitor.copy(item) },
-                            onPreview: { ClipboardPreviewer.preview(item) }
-                        )
+        Group {
+            if monitor.history.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    VStack(spacing: 6) {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                        Text("Copy something to get started")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, minHeight: 140)
+                    bottomBar
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(monitor.history) { item in
+                            ClipboardCard(
+                                item: item,
+                                hoveredID: $hoveredItemID,
+                                onCopy: { monitor.copy(item) },
+                                onPreview: { ClipboardPreviewer.preview(item) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 38)
+                    .padding(.bottom, 68)
+                }
+                .scrollIndicators(.never)
+                .frame(maxHeight: 540)
+                .overlay(alignment: .top) {
+                    header.allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottom) {
+                    bottomBar
+                }
             }
-            .scrollIndicators(.never)
-            .scrollEdgeEffectStyle(.soft, for: .all)
-            .frame(maxHeight: 540)
-            .safeAreaBar(edge: .top, spacing: 0) {
-                header
-            }
-            .safeAreaBar(edge: .bottom, spacing: 0) {
-                bottomBar
-            }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onAppear { focused = true }
+        .onKeyPress(.space) {
+            guard let id = hoveredItemID,
+                  let item = monitor.history.first(where: { $0.id == id })
+            else { return .ignored }
+            ClipboardPreviewer.preview(item)
+            return .handled
         }
     }
 
     private var header: some View {
-        HStack {
-            Text("Clipboard History")
-                .font(.system(size: 13, weight: .medium))
-            Spacer()
+        VStack(spacing: 0) {
+            HStack {
+                Text("Clipboard history")
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Color.clear.frame(height: 24)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .glassEffect(.regular, in: Rectangle())
         .mask {
             LinearGradient(
                 stops: [
                     .init(color: .black, location: 0.0),
-                    .init(color: .black, location: 0.7),
+                    .init(color: .black, location: 0.5),
+                    .init(color: .black.opacity(0.85), location: 0.65),
+                    .init(color: .black.opacity(0.55), location: 0.78),
+                    .init(color: .black.opacity(0.25), location: 0.9),
                     .init(color: .clear, location: 1.0),
                 ],
                 startPoint: .top,
@@ -104,6 +129,7 @@ private struct MainScreen: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: 24)
             settingsRow
             quitRow
         }
@@ -113,7 +139,10 @@ private struct MainScreen: View {
             LinearGradient(
                 stops: [
                     .init(color: .clear, location: 0.0),
-                    .init(color: .black, location: 0.25),
+                    .init(color: .black.opacity(0.25), location: 0.1),
+                    .init(color: .black.opacity(0.55), location: 0.22),
+                    .init(color: .black.opacity(0.85), location: 0.35),
+                    .init(color: .black, location: 0.5),
                     .init(color: .black, location: 1.0),
                 ],
                 startPoint: .top,
@@ -198,6 +227,7 @@ private struct SettingsScreen: View {
 
 private struct ClipboardCard: View {
     let item: ClipboardItem
+    @Binding var hoveredID: ClipboardItem.ID?
     let onCopy: () -> Void
     let onPreview: () -> Void
 
@@ -214,7 +244,7 @@ private struct ClipboardCard: View {
             thumbnail
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(height: thumbnailHeight)
-                .frame(maxHeight: 240)
+                .frame(maxHeight: 200)
                 .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -234,7 +264,14 @@ private struct ClipboardCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                hoveredID = item.id
+            } else if hoveredID == item.id {
+                hoveredID = nil
+            }
+        }
     }
 
     private var isText: Bool {
@@ -369,30 +406,63 @@ private enum LaunchAtLogin {
 
 private enum ClipboardPreviewer {
     static func preview(_ item: ClipboardItem) {
+        let url: URL?
         switch item.kind {
         case .text(let string):
-            openTemp(data: Data(string.utf8), ext: "txt")
+            url = writeTemp(data: Data(string.utf8), ext: "txt")
         case .image(let data):
-            openTemp(data: data, ext: imageExtension(for: data))
+            url = writeTemp(data: data, ext: imageExtension(for: data))
         case .files(let urls):
-            urls.forEach { NSWorkspace.shared.open($0) }
+            url = urls.first
         }
+        guard let url else {
+            NSSound.beep()
+            return
+        }
+        QuickLookCoordinator.shared.show(url: url)
     }
 
-    private static func openTemp(data: Data, ext: String) {
+    private static func writeTemp(data: Data, ext: String) -> URL? {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("control-c-\(UUID().uuidString).\(ext)")
         do {
             try data.write(to: url)
-            NSWorkspace.shared.open(url)
+            return url
         } catch {
-            NSSound.beep()
+            return nil
         }
     }
 
     private static func imageExtension(for data: Data) -> String {
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
         return "tiff"
+    }
+}
+
+private final class QuickLookPreviewItem: NSObject, QLPreviewItem {
+    let url: URL
+    init(url: URL) { self.url = url }
+    var previewItemURL: URL? { url }
+}
+
+private final class QuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
+    static let shared = QuickLookCoordinator()
+    private var item: QuickLookPreviewItem?
+
+    func show(url: URL) {
+        item = QuickLookPreviewItem(url: url)
+        guard let panel = QLPreviewPanel.shared() else { return }
+        panel.dataSource = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        item == nil ? 0 : 1
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        item
     }
 }
 

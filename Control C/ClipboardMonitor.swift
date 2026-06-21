@@ -58,6 +58,11 @@ final class ClipboardMonitor {
             pasteboard.writeObjects(urls as [NSURL])
         }
         lastChangeCount = pasteboard.changeCount
+
+        if let sound = NSSound(named: "Pop") {
+            sound.volume = 0.3
+            sound.play()
+        }
     }
 
     func clear() {
